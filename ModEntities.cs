@@ -98,7 +98,7 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
         {
             if (entity == null) continue;
 
-            var entityMods = entity.GetComponent<ObjectMagicProperties>().Mods;
+            var entityMods = entity.GetComponent<ObjectMagicProperties>()?.Mods;
 
             if (entityMods == null) continue;
 
