@@ -24,7 +24,7 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
 
     private List<Entity> viableEntities = new List<Entity>();
 
-    private List<Tuple<Entity, EntityGroup>> matchedEntities = new List<Tuple<Entity, EntityGroup>>();
+    private List<Tuple<Entity, EntityGroup, int>> matchedEntities = new List<Tuple<Entity, EntityGroup, int>>();
 
     public override Job Tick()
     {
@@ -67,7 +67,7 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
     {
         base.AreaChange(area);
 
-        matchedEntities = new List<Tuple<Entity, EntityGroup>>();
+        matchedEntities = new List<Tuple<Entity, EntityGroup, int>>();
         viableEntities = new List<Entity>();
     }
 
@@ -76,7 +76,7 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
         base.EntityAdded(entity);
 
         // We only want to add unique and rare monsters as they can have ghosts added
-        if (entity.Rarity == MonsterRarity.Unique || entity.Rarity == MonsterRarity.Rare)
+        if (entity.IsValid && (entity.Rarity == MonsterRarity.Unique || entity.Rarity == MonsterRarity.Rare) && entity.IsAlive)
         {
             viableEntities.Add(entity);
         }
@@ -96,11 +96,13 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
 
         foreach (var entity in viableEntities)
         {
-            if (entity == null) continue;
+            if (entity == null || !entity.IsValid || !entity.IsAlive) continue;
 
             var entityMods = entity.GetComponent<ObjectMagicProperties>()?.Mods;
 
             if (entityMods == null) continue;
+
+            Dictionary<EntityGroup, int> entityGroupMatches = new Dictionary<EntityGroup, int>();
 
             foreach (var mod in entityMods)
             {
@@ -118,7 +120,15 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
                 var matchingGroup = Settings.EntityGroups.Content.FirstOrDefault(g => g.PathTemplates.Content.Any(p => IsMatch(p.Value, mod)));
                 if (matchingGroup != null)
                 {
-                    matchedEntities.Add(new Tuple<Entity, EntityGroup>(entity, matchingGroup));
+                    if (!entityGroupMatches.TryGetValue(matchingGroup, out int total))
+                    {
+                        entityGroupMatches.Add(matchingGroup, 1);
+                    }
+                    else
+                    {
+                        entityGroupMatches[matchingGroup] = total + 1;
+                    }
+
                 }
                 else
                 {
@@ -132,7 +142,12 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
                 }
             }
 
-            
+            if (entityGroupMatches.Count > 0)
+            {
+                var largestMatch = entityGroupMatches.OrderBy(x => x.Value).FirstOrDefault();
+
+                matchedEntities.Add(new Tuple<Entity, EntityGroup, int>(entity, largestMatch.Key, largestMatch.Value));
+            }
         }
     }
 
@@ -142,9 +157,28 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
         {
             var entity = matchedEntity.Item1;
             var entityGroup = matchedEntity.Item2;
+            var entityName = entityGroup.Name == null ? entity.Path : entityGroup.Name.Value;
+
+            // Prob should have a config... but for now lets just append matched count.
+            if (matchedEntity.Item3 > 1)
+            {
+                entityName = $"[{matchedEntity.Item3}] {entityName}";
+            }
+
+
             if (entityGroup.ShowOnMap)
             {
-                Graphics.DrawTextWithBackground(entityGroup.Name, GameController.IngameState.Data.GetGridMapScreenPosition(entity.GridPosNum), SharpDX.Color.White, FontAlign.Center, SharpDX.Color.Black);
+                SharpDX.Color mapTextColor = SharpDX.Color.White;
+                if (matchedEntity.Item3 == 2)
+                {
+                    mapTextColor = SharpDX.Color.Orange;
+                }
+                else if (matchedEntity.Item3 >= 3)
+                {
+                    mapTextColor = SharpDX.Color.Red;
+                }
+
+                Graphics.DrawTextWithBackground(entityName, GameController.IngameState.Data.GetGridMapScreenPosition(entity.GridPosNum), mapTextColor, FontAlign.Center, SharpDX.Color.Black);
             }
             else
             {
@@ -158,7 +192,7 @@ public class ModEntities : BaseSettingsPlugin<ModEntitiesSettings>
                 var z = GameController.IngameState.Data.GetTerrainHeightAt(pos.Xy());
                 var worldPos = new Vector3(pos.Xy(), z);
                 var screenPos = GameController.IngameState.Camera.WorldToScreen(worldPos);
-                Graphics.DrawText(entity.Path, screenPos);
+                Graphics.DrawText(entityName, screenPos);
             }
         }
         
